@@ -1,2 +1,6 @@
 /.idea
-/_gopath/bin
+/_gopath
+*.iml
+*.pyc
+*.pyo
+/build/kafka
