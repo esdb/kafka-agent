@@ -4,3 +4,5 @@
 *.pyc
 *.pyo
 /build/kafka
+/build/log
+/build/data

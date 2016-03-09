@@ -2,6 +2,7 @@ package backend
 
 import (
 	"fmt"
+	"net/http"
 	"github.com/Shopify/sarama"
 )
 

@@ -2,6 +2,7 @@
 import subprocess
 import os
 import argparse
+import distutils.spawn
 
 
 if '__main__' == __name__:
@@ -22,5 +23,7 @@ if '__main__' == __name__:
     args = parser.parse_args()
     if 'build' == args.command:
         subprocess.check_call('go get github.com/esdb/kafka-agent', shell=True)
+    elif 'dev-env' == args.command:
+        os.execv(distutils.spawn.find_executable('supervisord'), ['supervisord', '-c', 'build/etc/supervisord.conf'])
     else:
         raise Exception('unknown command: %s' % args.command)
