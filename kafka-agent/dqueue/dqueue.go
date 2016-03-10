@@ -14,6 +14,7 @@ const MAX_PACKET_SIZE = 1024 * 16
 type DQueue struct {
 	fileObj *os.File
 	mappedFile mmap.MMap
+	nextReadAt uint32
 	header header
 	body []byte
 	/*
@@ -125,23 +126,28 @@ func (q *DQueue) Close() error {
 
 func (q *DQueue) Pop() ([][]byte, error) {
 	nextWriteAt := q.header.getNextWriteAt()
-	nextReadAt := q.header.getNextReadAt()
+	nextReadAt := q.nextReadAt
+	q.header.setNextReadAt(nextReadAt)
 	packetsCount := 0
 	fallBehind := false
-	if nextReadAt > nextWriteAt {
+	if nextReadAt == nextReadAt && nextWriteAt == uint32(len(q.view)) {
+		// at tail
+	} else if nextReadAt >= nextWriteAt {
 		fallBehind = true
 	}
-	for pos := nextReadAt; packetsCount < len(q.readBufferItself); packetsCount++ {
+	pos := nextReadAt
+	for ; packetsCount < len(q.readBufferItself); packetsCount++ {
 		if !fallBehind && pos >= nextWriteAt {
 			break
 		}
-		if pos > uint32(len(q.view)) {
-			return nil, errors.New("internal error: nextReadAt is invalid")
-		} else if pos == uint32(len(q.view)) {
+		viewSize := uint32(len(q.view))
+		if pos >= viewSize {
 			pos = 0 // wrap around
 			fallBehind = false
+			// the region between [nextWriteAt, tail) is now invalid
+			q.view = q.body[:nextWriteAt]
 		}
-		packetSize := binary.BigEndian.Uint16(q.view[pos:])
+		packetSize := binary.BigEndian.Uint16(q.view[pos:pos+2])
 		if packetSize > MAX_PACKET_SIZE {
 			return nil, errors.New("packet is too large")
 		}
@@ -152,11 +158,15 @@ func (q *DQueue) Pop() ([][]byte, error) {
 		q.readBufferItself[packetsCount] = readBuffer
 		pos = nextPos
 	}
+	q.nextReadAt = pos
 	return q.readBufferItself[:packetsCount], nil
 }
 
 func (q *DQueue) Push(packets [][]byte) error {
 	pos := q.header.getNextWriteAt()
+	if pos > uint32(len(q.body)) {
+		return errors.New("internal error: nextWriteAt is invalid")
+	}
 	for _, packet := range packets {
 		packetSize := uint16(len(packet))
 		if packetSize > MAX_PACKET_SIZE {
@@ -164,11 +174,15 @@ func (q *DQueue) Push(packets [][]byte) error {
 		}
 		viewSize := uint32(len(q.view))
 		willWriteTo := pos + 2 + uint32(packetSize)
+		// write range is [pos, willWriteTo)
+		if q.nextReadAt > pos && willWriteTo > q.nextReadAt {
+			// overflow the read
+			q.nextReadAt = willWriteTo
+			q.header.setNextReadAt(q.nextReadAt)
+		}
 		if willWriteTo > viewSize {
 			// overflow the view
-			if pos > uint32(len(q.body)) {
-				return errors.New("internal error: nextWriteAt is invalid")
-			} else if willWriteTo > uint32(len(q.body)) {
+			if willWriteTo > uint32(len(q.body)) {
 				// overflow the body, shrink the view
 				q.view = q.body[:pos]
 				pos = 0
