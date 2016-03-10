@@ -6,7 +6,9 @@ import (
 	"log"
 	"reflect"
 	"strconv"
-"math/rand"
+	"math/rand"
+	"fmt"
+	"time"
 )
 
 func Test_empty(t *testing.T) {
@@ -170,6 +172,24 @@ func Test_random_push_pop(t *testing.T) {
 	}
 }
 
+func Test_perf(t *testing.T) {
+	t.Skip("slow")
+	q := openTestQueue()
+	defer q.Close()
+	packets := [][]byte{
+		make([]byte, 10),
+	}
+	j := 0
+	before := time.Now()
+	for i := 0; i < 1024 * 1024 * 128; i++ {
+		q.Push(packets)
+		packets, _ := q.Pop()
+		j = len(packets)
+	}
+	fmt.Println(time.Now().Sub(before))
+	fmt.Println(j)
+}
+
 const ASSERT_FAILED = "ASERT_FAILED"
 
 func assertNotNil(obj interface{}) {
@@ -192,26 +212,6 @@ func assertEq(expected interface{}, actual interface{}) {
 		panic(ASSERT_FAILED)
 	}
 }
-
-type Comparable interface {
-	compare(that Comparable) int
-}
-
-type comp_int int
-
-//func (this comp_int) compare(thatObj Comparable) int {
-//	that, err := thatObj.(comp_int)
-//	if err != nil {
-//		return false
-//	}
-//	if this > that {
-//		return 1
-//	} else if this == that {
-//		return 0
-//	} else {
-//		return -1
-//	}
-//}
 
 func assertGt(left interface{}, right interface{}) {
 	if !_assertGt(left, right) {
