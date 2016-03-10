@@ -12,19 +12,24 @@ const MAX_READ_PACKET_COUNT = 1024
 const MAX_PACKET_SIZE = 1024 * 16
 
 type DQueue struct {
+	// underlying disk
 	fileObj *os.File
 	mappedFile mmap.MMap
+	// the uncommitted read pointer
+	// will be committed at next pop()
 	nextReadAt uint32
-	header header
-	body []byte
 	/*
 	view covers the readable range of body
 	to avoid split packet in two parts to wrap around
+	the memory will NOT be copied during read,
+	the reader must copy out the bytes manually before goroutine switch
 	[--- header ---][--- body ---]
 	                [--- view --]
-	 */
+	*/
+	header header
+	body []byte
 	view []byte
-	readBuffers [][]byte
+	// used to avoid allocation
 	readBufferItself [][]byte
 }
 
@@ -96,18 +101,13 @@ func Open(filePath string, nkiloBytes int) (*DQueue, error) {
 	body := mappedFile[HEADER_SIZE:]
 	view := body[:0]
 	header.setViewSize(uint32(len(view)))
-	readBuffers := make([][]byte, MAX_READ_PACKET_COUNT)
 	readBufferItself := make([][]byte, MAX_READ_PACKET_COUNT)
-	for i := 0; i < MAX_READ_PACKET_COUNT; i++ {
-		readBuffers[i] = make([]byte, 1024 * 256)
-	}
 	return &DQueue{
 		fileObj: fileObj,
 		mappedFile: mappedFile,
 		header: header,
 		body: body,
 		view: view,
-		readBuffers: readBuffers,
 		readBufferItself: readBufferItself,
 	}, nil
 }
@@ -153,9 +153,7 @@ func (q *DQueue) Pop() ([][]byte, error) {
 		}
 		pos += 2
 		nextPos := pos + uint32(packetSize)
-		readBuffer := q.readBuffers[packetsCount][:packetSize]
-		copy(readBuffer, q.view[pos:nextPos])
-		q.readBufferItself[packetsCount] = readBuffer
+		q.readBufferItself[packetsCount] = q.view[pos:nextPos]
 		pos = nextPos
 	}
 	q.nextReadAt = pos
